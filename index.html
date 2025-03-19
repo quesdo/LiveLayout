@@ -229,6 +229,27 @@
             margin-top: 5px;
             font-size: 11px;
         }
+        
+        /* Style pour la case à cocher principale */
+        .main-checkbox-container {
+            display: inline-flex;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            margin-left: 10px;
+        }
+        .main-checkbox-container input {
+            margin-right: 5px;
+        }
+        .main-label {
+            font-weight: bold;
+            font-size: 12px;
+        }
+        .main-active {
+            background-color: #ff5722;
+        }
     </style>
 </head>
 <body>
@@ -246,6 +267,10 @@
             <button onclick="resetZoom()">Réinitialiser zoom</button>
             <button onclick="syncToSupabase()" id="sync-button">Synchroniser</button>
             <div class="status-indicator" id="connection-status">Connexion...</div>
+            <div class="main-checkbox-container" id="main-container">
+                <input type="checkbox" id="main-checkbox" onchange="toggleMainMode()">
+                <span class="main-label">Page Principale</span>
+            </div>
         </div>
         
         <div id="object-map">
@@ -287,6 +312,9 @@
         let lastUpdateTime = Date.now();
         let usersOnline = 1;
         let isSupabaseInitialized = false;
+        let isMainPage = false; // Indique si cette page est la page principale
+        let pollingInterval = null; // Pour le rafraîchissement périodique
+        const REFRESH_INTERVAL = 1000; // Intervalle de rafraîchissement en ms
         
         // Supabase configuration
         const SUPABASE_URL = 'https://kikivfglslrobwttvlvn.supabase.co';
@@ -345,11 +373,20 @@
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'users' }, handleUsersUpdate)
                     .subscribe();
                 
+                // S'abonner aux changements de la table main_page pour synchroniser le mode principal
+                const mainPageSubscription = supabase
+                    .channel('public:main_page')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'main_page' }, handleMainPageUpdate)
+                    .subscribe();
+                
                 // Enregistrer l'utilisateur actuel
                 await registerUser();
                 
                 // Récupérer les acteurs existants
                 await fetchActors();
+                
+                // Vérifier s'il existe déjà une page principale
+                await checkMainPage();
                 
                 connectionStatus.textContent = 'En ligne';
                 connectionStatus.classList.add('online');
@@ -530,6 +567,126 @@
         function handleUsersUpdate(payload) {
             // Récupérer le nombre d'utilisateurs actifs
             fetchActiveUsers();
+        }
+        
+        // Gérer les mises à jour de la page principale
+        function handleMainPageUpdate(payload) {
+            checkMainPage();
+        }
+        
+        // Vérifier s'il y a une page principale définie
+        async function checkMainPage() {
+            try {
+                const { data, error } = await supabase
+                    .from('main_page')
+                    .select('*')
+                    .eq('is_active', true)
+                    .limit(1);
+                
+                if (error) throw error;
+                
+                // Vérifier si cette page est la page principale
+                if (data && data.length > 0) {
+                    const mainPageId = data[0].session_id;
+                    const isThisPageMain = mainPageId === sessionId;
+                    
+                    // Mettre à jour l'état local
+                    if (isThisPageMain !== isMainPage) {
+                        isMainPage = isThisPageMain;
+                        document.getElementById('main-checkbox').checked = isMainPage;
+                        
+                        const mainContainer = document.getElementById('main-container');
+                        if (isMainPage) {
+                            mainContainer.classList.add('main-active');
+                            startDataPolling();
+                        } else {
+                            mainContainer.classList.remove('main-active');
+                            stopDataPolling();
+                        }
+                    }
+                } else {
+                    // Aucune page principale définie
+                    isMainPage = false;
+                    document.getElementById('main-checkbox').checked = false;
+                    document.getElementById('main-container').classList.remove('main-active');
+                    stopDataPolling();
+                }
+            } catch (error) {
+                console.error('Erreur lors de la vérification de la page principale:', error);
+            }
+        }
+        
+        // Basculer le mode principal
+        async function toggleMainMode() {
+            const isChecked = document.getElementById('main-checkbox').checked;
+            
+            try {
+                if (isChecked) {
+                    // Cette page devient la page principale
+                    // D'abord, supprimer toute autre page principale
+                    const { error: deleteError } = await supabase
+                        .from('main_page')
+                        .delete()
+                        .neq('id', 0);
+                    
+                    if (deleteError) throw deleteError;
+                    
+                    // Ensuite, définir cette page comme principale
+                    const { error } = await supabase
+                        .from('main_page')
+                        .insert([{
+                            session_id: sessionId,
+                            is_active: true
+                        }]);
+                    
+                    if (error) throw error;
+                    
+                    isMainPage = true;
+                    document.getElementById('main-container').classList.add('main-active');
+                    startDataPolling();
+                } else {
+                    // Cette page n'est plus la page principale
+                    const { error } = await supabase
+                        .from('main_page')
+                        .delete()
+                        .eq('session_id', sessionId);
+                    
+                    if (error) throw error;
+                    
+                    isMainPage = false;
+                    document.getElementById('main-container').classList.remove('main-active');
+                    stopDataPolling();
+                }
+            } catch (error) {
+                console.error('Erreur lors du changement de mode principal:', error);
+                // Réinitialiser la case à cocher à son état précédent
+                document.getElementById('main-checkbox').checked = isMainPage;
+            }
+        }
+        
+        // Commencer le sondage périodique pour la synchronisation
+        function startDataPolling() {
+            if (!pollingInterval) {
+                pollingInterval = setInterval(fetchAndUpdateActorsFromSource, REFRESH_INTERVAL);
+                console.log('Mode page principale activé - Rafraîchissement automatique démarré');
+            }
+        }
+        
+        // Arrêter le sondage périodique
+        function stopDataPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                console.log('Mode page principale désactivé - Rafraîchissement automatique arrêté');
+            }
+        }
+        
+        // Récupérer les données des acteurs depuis la source originale
+        function fetchAndUpdateActorsFromSource() {
+            if (isMainPage) {
+                // Envoyer un message pour demander les données d'acteurs
+                window.parent.postMessage("requestActorsData", "*");
+            }
         }
         
         // Mettre à jour un acteur spécifique
@@ -1091,7 +1248,7 @@
                     if (data.action === "actorsData") {
                         console.log("Données d'acteurs reçues:", data.data);
                         
-                        // Mettre à jour les acteurs
+                        // Mettre à jour les acteurs locaux
                         actorsData = data.data;
                         drawActors();
                         
@@ -1100,9 +1257,19 @@
                             centerView();
                         }
                         
-                        // Si Supabase est initialisé, synchroniser
-                        if (isSupabaseInitialized) {
-                            // Attendre un peu pour éviter de synchroniser trop tôt
+                        // Si c'est la page principale, synchroniser avec Supabase
+                        if (isMainPage && isSupabaseInitialized) {
+                            syncToSupabase();
+                        }
+                    }
+                } else if (event.data === "requestActorsData") {
+                    // Une autre page demande les données actuelles, ignorons cela
+                    console.log("Requête de données d'acteurs reçue - ignorée");
+                }
+            } catch (e) {
+                console.error("Erreur de parsing:", e.message);
+            }
+        });ôt
                             setTimeout(() => {
                                 syncToSupabase();
                             }, 1000);
