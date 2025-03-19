@@ -208,16 +208,15 @@
             width: 100%;
             margin-top: 2px;
         }
+        /* Nouveaux styles pour Supabase */
         .status-indicator {
-            position: absolute;
-            top: 10px;
-            right: 200px;
             display: inline-block;
-            padding: 5px 10px;
+            padding: 5px 8px;
             background-color: rgba(0, 0, 0, 0.7);
             color: white;
             border-radius: 4px;
             font-size: 12px;
+            margin-left: 10px;
         }
         .status-indicator.online {
             background-color: rgba(0, 128, 0, 0.7);
@@ -226,7 +225,9 @@
             background-color: rgba(255, 0, 0, 0.7);
         }
         .users-online {
-            margin-left: 10px;
+            display: block;
+            margin-top: 5px;
+            font-size: 11px;
         }
     </style>
 </head>
@@ -243,7 +244,7 @@
             
             <button onclick="centerView()">Centrer</button>
             <button onclick="resetZoom()">Réinitialiser zoom</button>
-            <button onclick="saveState()" id="save-button">Sauvegarder</button>
+            <button onclick="syncToSupabase()" id="sync-button">Synchroniser</button>
             <div class="status-indicator" id="connection-status">Connexion...</div>
         </div>
         
@@ -259,7 +260,7 @@
             <div class="info-panel" id="info-panel">
                 Objets visibles: <span id="visible-count">0</span><br>
                 Objets masqués: <span id="hidden-count">0</span><br>
-                Total: <span id="total-count">0</span><br>
+                Total: <span id="total-count">0</span>
                 <span class="users-online" id="users-count">Utilisateurs: 1</span>
             </div>
         </div>
@@ -285,10 +286,11 @@
         let sessionId = generateSessionId();
         let lastUpdateTime = Date.now();
         let usersOnline = 1;
+        let isSupabaseInitialized = false;
         
         // Supabase configuration
-        const SUPABASE_URL = 'https://kikivfglslrobwttvlvn.supabase.co'; // Remplacer par votre URL Supabase
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtpa2l2Zmdsc2xyb2J3dHR2bHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ1MTIwNDQsImV4cCI6MjA1MDA4ODA0NH0.Njo06GXSyZHjpjRwPJ2zpElJ88VYgqN2YYDfTJnBQ6k'; // Remplacer par votre clé API Supabase
+        const SUPABASE_URL = 'https://kikivfglslrobwttvlvn.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtpa2l2Zmdsc2xyb2J3dHR2bHZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ1MTIwNDQsImV4cCI6MjA1MDA4ODA0NH0.Njo06GXSyZHjpjRwPJ2zpElJ88VYgqN2YYDfTJnBQ6k';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         
         // Éléments DOM
@@ -300,7 +302,7 @@
         const totalCount = document.getElementById('total-count');
         const usersCountElement = document.getElementById('users-count');
         const connectionStatus = document.getElementById('connection-status');
-        const saveButton = document.getElementById('save-button');
+        const syncButton = document.getElementById('sync-button');
         
         // Générer un ID de session unique
         function generateSessionId() {
@@ -349,16 +351,17 @@
                 // Récupérer les acteurs existants
                 await fetchActors();
                 
-                connectionStatus.textContent = 'Connecté';
+                connectionStatus.textContent = 'En ligne';
                 connectionStatus.classList.add('online');
+                isSupabaseInitialized = true;
                 
                 // Mettre en place un ping pour maintenir la connexion utilisateur active
                 setInterval(pingUserActivity, 30000);
                 
-                console.log('Supabase initialized successfully');
+                console.log('Supabase initialisé avec succès');
             } catch (error) {
-                console.error('Error initializing Supabase:', error);
-                connectionStatus.textContent = 'Déconnecté';
+                console.error('Erreur d\'initialisation de Supabase:', error);
+                connectionStatus.textContent = 'Hors ligne';
                 connectionStatus.classList.add('offline');
             }
         }
@@ -378,7 +381,7 @@
                 // Récupérer le nombre d'utilisateurs actifs
                 await fetchActiveUsers();
             } catch (error) {
-                console.error('Error registering user:', error);
+                console.error('Erreur lors de l\'enregistrement de l\'utilisateur:', error);
             }
         }
         
@@ -395,7 +398,7 @@
                 // Récupérer le nombre d'utilisateurs actifs
                 await fetchActiveUsers();
             } catch (error) {
-                console.error('Error updating user activity:', error);
+                console.error('Erreur lors de la mise à jour de l\'activité utilisateur:', error);
             }
         }
         
@@ -415,7 +418,7 @@
                 usersOnline = count || 1;
                 usersCountElement.textContent = `Utilisateurs: ${usersOnline}`;
             } catch (error) {
-                console.error('Error fetching active users:', error);
+                console.error('Erreur lors de la récupération des utilisateurs actifs:', error);
             }
         }
         
@@ -433,7 +436,7 @@
                     // Convertir les données au format attendu
                     actorsData = data.map(item => ({
                         name: item.name,
-                        type: item.type,
+                        type: item.type || 'object',
                         position: {
                             x: item.position_x,
                             y: item.position_y,
@@ -456,35 +459,21 @@
                     }
                 }
             } catch (error) {
-                console.error('Error fetching actors:', error);
+                console.error('Erreur lors de la récupération des acteurs:', error);
             }
         }
         
-        // Gérer les mises à jour d'acteurs depuis Supabase
-        function handleActorsUpdate(payload) {
-            console.log('Actors update received:', payload);
-            
-            // Récupérer les acteurs mis à jour
-            fetchActors();
-        }
-        
-        // Gérer les mises à jour d'utilisateurs
-        function handleUsersUpdate(payload) {
-            // Récupérer le nombre d'utilisateurs actifs
-            fetchActiveUsers();
-        }
-        
-        // Sauvegarder l'état actuel des acteurs
-        async function saveState() {
+        // Synchroniser avec Supabase
+        async function syncToSupabase() {
             try {
-                saveButton.disabled = true;
-                saveButton.textContent = 'Sauvegarde...';
+                syncButton.disabled = true;
+                syncButton.textContent = 'Synchronisation...';
                 
-                // Vérifier s'il y a des données à sauvegarder
+                // Vérifier s'il y a des données à synchroniser
                 if (actorsData.length === 0) {
-                    alert('Aucune donnée à sauvegarder.');
-                    saveButton.disabled = false;
-                    saveButton.textContent = 'Sauvegarder';
+                    alert('Aucune donnée à synchroniser.');
+                    syncButton.disabled = false;
+                    syncButton.textContent = 'Synchroniser';
                     return;
                 }
                 
@@ -499,7 +488,7 @@
                 // Préparer les données pour l'insertion
                 const dataToInsert = actorsData.map(actor => ({
                     name: actor.name,
-                    type: actor.type,
+                    type: actor.type || 'object',
                     position_x: actor.position.x,
                     position_y: actor.position.y,
                     position_z: actor.position.z,
@@ -516,40 +505,85 @@
                 
                 if (error) throw error;
                 
-                saveButton.textContent = 'Sauvegardé!';
+                syncButton.textContent = 'Synchronisé!';
                 setTimeout(() => {
-                    saveButton.disabled = false;
-                    saveButton.textContent = 'Sauvegarder';
+                    syncButton.disabled = false;
+                    syncButton.textContent = 'Synchroniser';
                 }, 2000);
             } catch (error) {
-                console.error('Error saving state:', error);
-                alert('Erreur lors de la sauvegarde: ' + error.message);
-                saveButton.disabled = false;
-                saveButton.textContent = 'Sauvegarder';
+                console.error('Erreur lors de la synchronisation:', error);
+                alert('Erreur lors de la synchronisation: ' + error.message);
+                syncButton.disabled = false;
+                syncButton.textContent = 'Synchroniser';
             }
+        }
+        
+        // Gérer les mises à jour d'acteurs depuis Supabase
+        function handleActorsUpdate(payload) {
+            console.log('Mise à jour des acteurs reçue:', payload);
+            
+            // Récupérer les acteurs mis à jour
+            fetchActors();
+        }
+        
+        // Gérer les mises à jour d'utilisateurs
+        function handleUsersUpdate(payload) {
+            // Récupérer le nombre d'utilisateurs actifs
+            fetchActiveUsers();
         }
         
         // Mettre à jour un acteur spécifique
         async function updateActor(actor) {
             try {
+                if (!isSupabaseInitialized) return;
+                
                 // Limiter les mises à jour à une par seconde maximum
                 const now = Date.now();
                 if (now - lastUpdateTime < 1000) return;
                 lastUpdateTime = now;
                 
-                const { data, error } = await supabase
+                // Vérifier si l'acteur existe déjà dans Supabase
+                const { data, error: checkError } = await supabase
                     .from('actors')
-                    .update({
-                        position_x: actor.position.x,
-                        position_y: actor.position.y,
-                        position_z: actor.position.z,
-                        visible: actor.visible
-                    })
-                    .eq('name', actor.name);
+                    .select('id')
+                    .eq('name', actor.name)
+                    .limit(1);
                 
-                if (error) throw error;
+                if (checkError) throw checkError;
+                
+                if (data && data.length > 0) {
+                    // Mise à jour de l'acteur existant
+                    const { error } = await supabase
+                        .from('actors')
+                        .update({
+                            position_x: actor.position.x,
+                            position_y: actor.position.y,
+                            position_z: actor.position.z,
+                            visible: actor.visible
+                        })
+                        .eq('name', actor.name);
+                    
+                    if (error) throw error;
+                } else {
+                    // Création d'un nouvel acteur
+                    const { error } = await supabase
+                        .from('actors')
+                        .insert([{
+                            name: actor.name,
+                            type: actor.type || 'object',
+                            position_x: actor.position.x,
+                            position_y: actor.position.y,
+                            position_z: actor.position.z,
+                            color_r: actor.color.r,
+                            color_g: actor.color.g,
+                            color_b: actor.color.b,
+                            visible: actor.visible
+                        }]);
+                    
+                    if (error) throw error;
+                }
             } catch (error) {
-                console.error('Error updating actor:', error);
+                console.error('Erreur lors de la mise à jour de l\'acteur:', error);
             }
         }
         
@@ -647,17 +681,6 @@
         function startDrag(e) {
             // Ignorer si on clique sur un bouton ou un contrôle
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') {
-                return;
-            }
-            
-            // Vérifier si l'élément cliqué est un objet
-            let targetObject = e.target;
-            while (targetObject && !targetObject.classList.contains('object-representation')) {
-                targetObject = targetObject.parentElement;
-            }
-            
-            if (targetObject) {
-                // C'est un objet, on gère la sélection
                 return;
             }
             
@@ -791,3 +814,308 @@
             axisY.style.width = `${mapWidth}px`;
             axisY.style.height = '2px';
             map.appendChild(axisY);
+        }
+        
+        // Fonction pour créer une représentation 3D d'un objet
+        function createObject3D(actor, x, y) {
+            const obj = document.createElement('div');
+            obj.className = 'object-representation' + (actor.visible ? '' : ' hidden');
+            obj.setAttribute('data-name', actor.name);
+            obj.style.display = (!actor.visible && !showHidden) ? 'none' : 'block';
+            
+            // Positionner l'objet
+            obj.style.left = `${x * mapScale + mapOffsetX}px`;
+            obj.style.top = `${y * mapScale + mapOffsetY}px`;
+            
+            // Déterminer le type de visualisation en fonction du type d'acteur
+            const r = actor.color.r;
+            const g = actor.color.g;
+            const b = actor.color.b;
+            const colorStr = `rgb(${r}, ${g}, ${b})`;
+            
+            // Vérifier si c'est un "Button" dans le nom
+            if (actor.name.toLowerCase().includes('button')) {
+                // Créer un cube 3D pour les boutons
+                const cube = document.createElement('div');
+                cube.className = 'object-3d';
+                cube.style.width = `${objectSize}px`;
+                cube.style.height = `${objectSize}px`;
+                
+                const cubeInner = document.createElement('div');
+                cubeInner.className = 'object-cube';
+                
+                // Créer les 6 faces du cube
+                const faces = ['front', 'back', 'top', 'bottom', 'left', 'right'];
+                faces.forEach(face => {
+                    const faceDom = document.createElement('div');
+                    faceDom.className = `cube-face cube-${face}`;
+                    faceDom.style.backgroundColor = colorStr;
+                    cubeInner.appendChild(faceDom);
+                });
+                
+                cube.appendChild(cubeInner);
+                obj.appendChild(cube);
+            } else {
+                // Pour les autres objets, utiliser une sphère
+                const sphere = document.createElement('div');
+                sphere.className = 'object-3d object-sphere';
+                sphere.style.width = `${objectSize}px`;
+                sphere.style.height = `${objectSize}px`;
+                sphere.style.backgroundColor = colorStr;
+                obj.appendChild(sphere);
+            }
+            
+            // Ajouter le nom de l'objet
+            const label = document.createElement('div');
+            label.className = 'object-label';
+            label.textContent = actor.name;
+            label.style.display = showLabels ? 'block' : 'none';
+            obj.appendChild(label);
+            
+            // Ajouter des gestionnaires d'événements
+            obj.addEventListener('mouseover', function(e) {
+                showTooltip(e, actor);
+            });
+            
+            obj.addEventListener('mousemove', function(e) {
+                moveTooltip(e);
+            });
+            
+            obj.addEventListener('mouseout', function() {
+                hideTooltip();
+            });
+            
+            obj.addEventListener('click', function() {
+                selectActor(actor);
+            });
+            
+            // Support pour le drag & drop des objets
+            let isDraggingObject = false;
+            let startX, startY;
+            let originalActorX, originalActorY, originalActorZ;
+            
+            obj.addEventListener('mousedown', function(e) {
+                e.stopPropagation(); // Empêcher la propagation à la carte
+                
+                if (selectedActor === actor.name) {
+                    isDraggingObject = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    
+                    // Sauvegarder la position initiale
+                    originalActorX = actor.position.x;
+                    originalActorY = actor.position.y;
+                    originalActorZ = actor.position.z;
+                    
+                    document.addEventListener('mousemove', dragObject);
+                    document.addEventListener('mouseup', stopDragObject);
+                }
+            });
+            
+            function dragObject(e) {
+                if (!isDraggingObject) return;
+                
+                const dx = (e.clientX - startX) / mapScale;
+                const dy = (e.clientY - startY) / mapScale;
+                
+                // Mettre à jour la position en fonction de la vue
+                if (currentView === 'top') {
+                    actor.position.x = originalActorX + dx;
+                    actor.position.z = originalActorZ + dy;
+                } else if (currentView === 'front') {
+                    actor.position.x = originalActorX + dx;
+                    actor.position.y = originalActorY + dy;
+                } else { // side
+                    actor.position.z = originalActorZ + dx;
+                    actor.position.y = originalActorY + dy;
+                }
+                
+                // Redessiner tous les acteurs
+                drawActors();
+                
+                // Mettre à jour dans Supabase
+                updateActor(actor);
+            }
+            
+            function stopDragObject() {
+                if (isDraggingObject) {
+                    isDraggingObject = false;
+                    document.removeEventListener('mousemove', dragObject);
+                    document.removeEventListener('mouseup', stopDragObject);
+                }
+            }
+            
+            // Ajouter la classe selected si c'est l'acteur sélectionné
+            if (selectedActor === actor.name) {
+                obj.classList.add('selected');
+            }
+            
+            return obj;
+        }
+        
+        // Fonction pour dessiner les acteurs
+        function drawActors() {
+            // Supprimer les représentations existantes
+            document.querySelectorAll('.object-representation').forEach(el => el.remove());
+            
+            // Compter les acteurs visibles/masqués
+            let countVisible = 0;
+            let countHidden = 0;
+            
+            // Dessiner les nouveaux points
+            actorsData.forEach(actor => {
+                if (actor.visible) {
+                    countVisible++;
+                } else {
+                    countHidden++;
+                }
+                
+                // Déterminer les coordonnées selon la vue
+                let x, y;
+                if (currentView === 'top') {
+                    x = actor.position.x;
+                    y = actor.position.z;
+                } else if (currentView === 'front') {
+                    x = actor.position.x;
+                    y = actor.position.y;
+                } else { // side
+                    x = actor.position.z;
+                    y = actor.position.y;
+                }
+                
+                // Créer la représentation 3D
+                const obj3d = createObject3D(actor, x, y);
+                map.appendChild(obj3d);
+            });
+            
+            // Mettre à jour les compteurs
+            visibleCount.textContent = countVisible;
+            hiddenCount.textContent = countHidden;
+            totalCount.textContent = actorsData.length;
+        }
+        
+        // Fonction pour sélectionner un acteur
+        function selectActor(actor) {
+            if (selectedActor === actor.name) {
+                selectedActor = null;
+            } else {
+                selectedActor = actor.name;
+            }
+            drawActors();
+            
+            // Ajouter une interface de modification pour l'acteur sélectionné
+            const infoPanel = document.getElementById('info-panel');
+            if (selectedActor) {
+                // Trouver l'acteur sélectionné
+                const selectedActorObj = actorsData.find(a => a.name === selectedActor);
+                if (selectedActorObj) {
+                    // Ajouter des contrôles pour modifier la visibilité
+                    const actorControls = document.createElement('div');
+                    actorControls.className = 'actor-controls';
+                    actorControls.innerHTML = `
+                        <hr>
+                        <strong>${selectedActorObj.name}</strong><br>
+                        <label>
+                            <input type="checkbox" id="actor-visible" ${selectedActorObj.visible ? 'checked' : ''}>
+                            Visible
+                        </label>
+                    `;
+                    
+                    // S'il existe déjà des contrôles, les remplacer
+                    const existingControls = infoPanel.querySelector('.actor-controls');
+                    if (existingControls) {
+                        infoPanel.removeChild(existingControls);
+                    }
+                    
+                    infoPanel.appendChild(actorControls);
+                    
+                    // Ajouter un gestionnaire d'événement pour la case à cocher
+                    document.getElementById('actor-visible').addEventListener('change', function(e) {
+                        selectedActorObj.visible = e.target.checked;
+                        drawActors();
+                        updateActor(selectedActorObj);
+                    });
+                }
+            } else {
+                // Supprimer les contrôles s'ils existent
+                const existingControls = infoPanel.querySelector('.actor-controls');
+                if (existingControls) {
+                    infoPanel.removeChild(existingControls);
+                }
+            }
+        }
+        
+        // Fonctions pour les tooltips
+        function showTooltip(e, actor) {
+            tooltip.style.display = 'block';
+            
+            // Formater les informations de position selon la vue
+            let positionInfo;
+            if (currentView === 'top') {
+                positionInfo = `X: ${actor.position.x.toFixed(0)}, Z: ${actor.position.z.toFixed(0)}`;
+            } else if (currentView === 'front') {
+                positionInfo = `X: ${actor.position.x.toFixed(0)}, Y: ${actor.position.y.toFixed(0)}`;
+            } else { // side
+                positionInfo = `Z: ${actor.position.z.toFixed(0)}, Y: ${actor.position.y.toFixed(0)}`;
+            }
+            
+            tooltip.innerHTML = `
+                <strong>${actor.name}</strong><br>
+                Type: ${actor.type}<br>
+                Position 3D:<br>
+                X: ${actor.position.x.toFixed(0)}<br>
+                Y: ${actor.position.y.toFixed(0)}<br>
+                Z: ${actor.position.z.toFixed(0)}<br>
+                Visible: ${actor.visible ? 'Oui' : 'Non'}
+            `;
+            
+            moveTooltip(e);
+        }
+        
+        function moveTooltip(e) {
+            tooltip.style.left = (e.clientX + 10) + 'px';
+            tooltip.style.top = (e.clientY + 10) + 'px';
+        }
+        
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+        }
+        
+        // Écouter les messages de l'expérience
+        window.addEventListener("message", (event) => {
+            try {
+                // Vérifier si le message peut être parsé comme JSON
+                if (typeof event.data === 'string' && event.data.startsWith('{')) {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.action === "actorsData") {
+                        console.log("Données d'acteurs reçues:", data.data);
+                        
+                        // Mettre à jour les acteurs
+                        actorsData = data.data;
+                        drawActors();
+                        
+                        // Centrer la vue si c'est la première fois
+                        if (mapOffsetX === 0 && mapOffsetY === 0) {
+                            centerView();
+                        }
+                        
+                        // Si Supabase est initialisé, synchroniser
+                        if (isSupabaseInitialized) {
+                            // Attendre un peu pour éviter de synchroniser trop tôt
+                            setTimeout(() => {
+                                syncToSupabase();
+                            }, 1000);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Erreur de parsing:", e.message);
+            }
+        });
+        
+        // Initialiser la page
+        window.onload = initialize;
+    </script>
+</body>
+</html>
